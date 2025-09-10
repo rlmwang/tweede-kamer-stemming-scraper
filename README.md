@@ -6,6 +6,8 @@ It extracts motion titles, motion type, text (from HTML or DOCX), vote results, 
 
 **NOTE:** Voting details may appear on the website with a slight delay.
 
+**NOTE:** Wetsvoorstellen are skipped for now, as they have many steps and I still have to figure out how they work.
+
 ## Features
 
 - Scrapes motion title and type (`Motie`, `Brief commissie`, etc.)

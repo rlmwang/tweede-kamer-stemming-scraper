@@ -136,6 +136,9 @@ def parse_stemming_page(url) -> dict[str, pl.DataFrame]:
             stemming_id=stemming_info["stemming_id"],
             besluit=besluit,
         )
+        if motie_data is None:
+            print(f"Skipped {url}")
+            continue
 
         data = merge_tables(data, motie_data)
 
@@ -144,7 +147,7 @@ def parse_stemming_page(url) -> dict[str, pl.DataFrame]:
 
 def parse_stemming_page_info(url: str, soup) -> dict:
     # stemming id & did
-    match = re.search(r"id=([^&]+)&did=([^&]+)", url)
+    match = re.search(r"id=([^&]+)&(?:did|dossier)=([^&]+)", url)
     if not match:
         raise ValueError(f"ID and DID missing from motion for {url}")
     stemming_id = match.group(1)
@@ -185,7 +188,7 @@ def parse_motie_page(
     url: str,
     stemming_id: str,
     besluit: str | None,
-) -> dict[str, pl.DataFrame]:
+) -> dict[str, pl.DataFrame] | None:
     data = create_tables()
 
     resp = requests.get(url)
@@ -194,9 +197,13 @@ def parse_motie_page(
     page = resp.content
     soup = BeautifulSoup(page, "lxml")
 
+    motie_info = parse_motie_info(url=url, soup=soup)
+    if motie_info is None:
+        return None
+
     motie_info = {
         "stemming_id": stemming_id,
-        **parse_motie_info(url=url, soup=soup),
+        **motie_info,
         "besluit": besluit,
     }
 
@@ -247,9 +254,9 @@ def parse_motie_page(
     return data
 
 
-def parse_motie_info(url: str, soup) -> dict:
+def parse_motie_info(url: str, soup) -> dict | None:
     # motie id & did
-    match = re.search(r"id=([^&]+)&did=([^&]+)", url)
+    match = re.search(r"id=([^&]+)&(?:did|dossier)=([^&]+)", url)
     if not match:
         raise ValueError(f"ID and DID missing from motion for {url}")
     motie_id = match.group(1)
@@ -280,6 +287,16 @@ def parse_motie_info(url: str, soup) -> dict:
             # collect all non-span text inside the h1
             title_text = "".join(t for t in h1.stripped_strings if t != motion_type and t != ":")
             all_titles.append({"type": motion_type, "titel": title_text})
+
+    if len(all_titles) != 1:
+        raise ValueError(f"Title missing or not unique for {url}")
+    motie_type, motie_title = all_titles[0]["type"], all_titles[0]["titel"]
+
+    # check for early exits
+    if motie_type.lower() == "wetsvoorstel":
+        # TODO: implement wetsvoorstellen
+        print("Wetsvoorstel detected!")
+        return None
 
     # motie pdf url
     download_tag = soup.select_one('a[aria-label^="Download kamerstuk"]')
@@ -321,10 +338,6 @@ def parse_motie_info(url: str, soup) -> dict:
         # combine and normalize whitespace
         motie_text = " ".join(text_parts)
         motie_text = " ".join(motie_text.split())
-
-    if len(all_titles) != 1:
-        raise ValueError(f"Title missing or not unique for {url}")
-    motie_type, motie_title = all_titles[0]["type"], all_titles[0]["titel"]
 
     return {
         "motie_id": motie_id,
