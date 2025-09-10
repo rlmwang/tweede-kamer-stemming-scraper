@@ -3,6 +3,7 @@ import os
 import re
 import ssl
 from pathlib import Path
+from collections.abc import Iterator
 
 import polars as pl
 import PyPDF2
@@ -60,17 +61,17 @@ def run(begin_page, end_page=None):
 
     result = None
     for i in tqdm(range(begin_page, end_page + 1)):
-        data = parse_listings_page(
-            url=STEMMINGSUITSLAGEN_URL.format(page=i),
-        )
-        result = merge_tables(result, data)
+        for data in parse_listings_page(url=STEMMINGSUITSLAGEN_URL.format(page=i)):
+            if len(data['stemming']) != 1:
+                raise ValueError('Multiple votings in one page')
+            stemming_id = data['stemming']['stemming_id'].item()
+
+            write_tables(data, stemming_id)
 
         break  # TODO: remove debugging break
 
-    write_tables(result)
 
-
-def parse_listings_page(url) -> dict[str, pl.DataFrame]:
+def parse_listings_page(url) -> Iterator[dict[str, pl.DataFrame]]:
     resp = requests.get(url)
     if not resp.ok:
         raise ValueError(f"Page {url} does not respond")
@@ -85,11 +86,7 @@ def parse_listings_page(url) -> dict[str, pl.DataFrame]:
     result = None
     for link in links:
         print(link)
-
-        data = parse_stemming_page(url=DEBAT_URL.format(link=link.strip("/")))
-        result = merge_tables(result, data)
-
-    return result
+        yield parse_stemming_page(url=DEBAT_URL.format(link=link.strip("/")))
 
 
 def parse_stemming_page(url) -> dict[str, pl.DataFrame]:
@@ -434,10 +431,10 @@ def create_tables() -> dict[str, pl.DataFrame]:
     }
 
 
-def write_tables(data: dict[str, pl.DataFrame]):
-    RESULTS_ROOT.mkdir(parents=True, exist_ok=True)
-    for name, table in data.items():
-        table.write_csv(RESULTS_ROOT / f"{name}.csv")
+def write_tables(data: dict[str, pl.DataFrame], name: str):
+    (RESULTS_ROOT / name).mkdir(parents=True, exist_ok=True)
+    for key, table in data.items():
+        table.write_csv(RESULTS_ROOT / name / f"{key}.csv")
 
 
 def merge_tables(
