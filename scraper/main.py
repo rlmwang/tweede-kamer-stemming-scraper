@@ -22,6 +22,39 @@ DEBAT_URL = "https://www.tweedekamer.nl/{link}"
 MOTIE_URL = "https://www.tweedekamer.nl/{link}"
 
 
+STEMMING_SCHEMA = {
+    "stemming_id": str,
+    "stemming_did": str,
+    "title": str,
+    "date": str,
+    "type": str,
+}
+MOTIE_SCHEMA = {
+    "stemming_id": str,
+    "motie_id": str,
+    "motie_did": str,
+    "document_nr": str,
+    "date": str,
+    "title": str,
+    "besluit": str,
+    "uitslag": str,
+    "voor": int,
+    "vereist": int,
+    "totaal": int,
+}
+INDIENERS_SCHEMA = {
+    "motie_id": str,
+    "name": str,
+    "type": str,
+}
+DETAILS_SCHEMA = {
+    "motie_id": str,
+    "fractie": str,
+    "zetels": str,
+    "stem": str,
+}
+
+
 def parse_stemming_page(url) -> dict[str, pl.DataFrame]:
     data = create_tables()
 
@@ -388,38 +421,6 @@ def run(begin_page, end_page=None):
 
 
 # UTILS
-
-STEMMING_SCHEMA = {
-    "stemming_id": str,
-    "stemming_did": str,
-    "title": str,
-    "date": str,
-    "type": str,
-}
-MOTIE_SCHEMA = {
-    "stemming_id": str,
-    "motie_id": str,
-    "motie_did": str,
-    "document_nr": str,
-    "date": str,
-    "title": str,
-    "besluit": str,
-    "uitslag": str,
-    "voor": int,
-    "vereist": int,
-    "totaal": int,
-}
-INDIENERS_SCHEMA = {
-    "motie_id": str,
-    "name": str,
-    "type": str,
-}
-DETAILS_SCHEMA = {
-    "motie_id": str,
-    "fractie": str,
-    "zetels": str,
-    "stem": str,
-}
 
 
 def create_tables() -> dict[str, pl.DataFrame]:
