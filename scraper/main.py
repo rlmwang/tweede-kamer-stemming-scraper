@@ -2,15 +2,14 @@
 import os
 import re
 import ssl
-from pathlib import Path
 from collections.abc import Iterator
+from pathlib import Path
 
 import polars as pl
 import PyPDF2
 import requests
 import wget
 from bs4 import BeautifulSoup
-from tqdm import tqdm
 
 RESULTS_ROOT = Path("results")
 
@@ -37,6 +36,7 @@ MOTIE_SCHEMA = {
     "document_nr": str,
     "date": str,
     "title": str,
+    "type": str,
     "besluit": str,
     "uitslag": str,
     "voor": int,
@@ -60,14 +60,16 @@ def run(begin_page, end_page=None):
     end_page = max(begin_page or 0, end_page or 0)
 
     result = None
-    for i in tqdm(range(begin_page, end_page + 1)):
-        for data in parse_listings_page(url=STEMMINGSUITSLAGEN_URL.format(page=i)):
-            if len(data['stemming']) != 1:
-                raise ValueError('Multiple votings in one page')
-            stemming_id = data['stemming']['stemming_id'].item()
+    for i in range(begin_page, end_page + 1):
+        url = STEMMINGSUITSLAGEN_URL.format(page=i)
+        for data in parse_listings_page(url=url):
+            if len(data["stemming"]) != 1:
+                raise ValueError(f"Multiple votings in one page for {url}")
+            stemming_id = data["stemming"]["stemming_id"].item()
 
             write_tables(data, stemming_id)
 
+            break  # TODO: remove debugging break
         break  # TODO: remove debugging break
 
 
@@ -81,7 +83,7 @@ def parse_listings_page(url) -> Iterator[dict[str, pl.DataFrame]]:
     links = [a["href"] for a in soup.select("h4.u-mt-0 > a")]
 
     if len(links) == 0:
-        raise ValueError("No links found")
+        raise ValueError(f"No links found for {url}")
 
     result = None
     for link in links:
@@ -107,13 +109,13 @@ def parse_stemming_page(url) -> dict[str, pl.DataFrame]:
 
     cards = soup.select("div.m-card")
     if len(cards) == 0:
-        raise ValueError("No motions found")
+        raise ValueError(f"No motions found for {url}")
 
-    for card in cards:
+    for k, card in enumerate(cards):
         # Find the main motion link
         link_tag = card.select_one("h3.m-card__title > a")
         if link_tag is None:
-            raise ValueError("Cannot find link of motion")
+            raise ValueError(f"Cannot find link of motion {k} for {url}")
         link = link_tag["href"]
         print("  " + link)
 
@@ -124,7 +126,7 @@ def parse_stemming_page(url) -> dict[str, pl.DataFrame]:
                 besluit_tag = p.select_one("span.u-font-bold")
                 break
         if besluit_tag is None:
-            raise ValueError("Cannot find decision of motion")
+            raise ValueError(f"Cannot find decision of motion {k} for {url}")
         besluit = besluit_tag.get_text(strip=True).strip(".")
 
         motie_data = parse_motie_page(
@@ -142,31 +144,31 @@ def parse_stemming_page_info(url: str, soup) -> dict:
     # stemming id & did
     match = re.search(r"id=([^&]+)&did=([^&]+)", url)
     if not match:
-        raise ValueError("ID and DID missing from motion")
+        raise ValueError(f"ID and DID missing from motion for {url}")
     stemming_id = match.group(1)
     stemming_did = match.group(2)
 
     # stemming title
     meta_tag = soup.select_one('meta[name="dcterms.title"]')
     if meta_tag is None:
-        ValueError("Stemming title is missing")
+        ValueError(f"Stemming title is missing for {url}")
     stemming_title = meta_tag["content"]
 
     # stemming type & date
     h2_tags = soup.select("h2")
     if len(h2_tags) != 1:
-        raise ValueError("Stemming subtitle is missing or not unique")
+        raise ValueError(f"Stemming subtitle is missing or not unique for {url}")
 
     for h2 in h2_tags:
         span = h2.select_one("span.u-font-normal")
         if span is None:
-            raise ValueError("Stemming date is missing")
+            raise ValueError(f"Stemming date is missing for {url}")
         stemming_date = span.get_text(strip=True)
 
         # The meeting type is everything in h2 minus the span
         stemming_type = h2.contents[0].strip() if h2.contents else None
         if type is None:
-            raise ValueError("Stemming type is missing")
+            raise ValueError(f"Stemming type is missing for {url}")
 
     return {
         "stemming_id": stemming_id,
@@ -196,7 +198,7 @@ def parse_motie_page(
         "besluit": besluit,
     }
 
-    indieners_info = parse_indieners_info(soup=soup)
+    indieners_info = parse_indieners_info(url=url, soup=soup)
     for row in indieners_info:
         row["motie_id"] = motie_info["motie_id"]
 
@@ -205,7 +207,7 @@ def parse_motie_page(
         # motie uitslag text
         h3 = h2.find_next("h3")
         if h3 is None:
-            raise ValueError("Uitslag is missing from stemmingsuitslagen")
+            raise ValueError(f"Uitslag is missing from stemmingsuitslagen for {url}")
         motie_info["uitslag"] = h3.get_text(strip=True)
 
         # motie uitslag counts
@@ -247,7 +249,7 @@ def parse_motie_info(url: str, soup) -> dict:
     # motie id & did
     match = re.search(r"id=([^&]+)&did=([^&]+)", url)
     if not match:
-        raise ValueError("ID and DID missing from motion")
+        raise ValueError(f"ID and DID missing from motion for {url}")
     motie_id = match.group(1)
     motie_did = match.group(2)
 
@@ -257,25 +259,29 @@ def parse_motie_info(url: str, soup) -> dict:
         span.next_sibling.strip() for span in doc_nr_spans if "Nummer:" in span.get_text()
     ]
     if len(all_doc_nrs) != 1:
-        raise ValueError("Document nr missing or not unique")
+        raise ValueError(f"Document nr missing or not unique for {url}")
     motie_document_nr = all_doc_nrs[0]
 
     # motie date
     date_spans = soup.select("span.h-visually-hidden")
     all_dates = [span.next_sibling.strip() for span in date_spans if "Datum:" in span.get_text()]
     if len(all_dates) != 1:
-        raise ValueError("Date missing or not unique")
+        raise ValueError(f"Date missing or not unique for {url}")
     motie_date = all_dates[0]
 
-    # motie title
+    # motion type & title
     all_titles = []
     for h1 in soup.select("h1"):
         span = h1.select_one("span.u-text-primary.u-font-normal")
-        if span and span.get_text(strip=True).lower().startswith("motie"):
-            all_titles.append(h1.contents[-1].strip())
+        if span:
+            motion_type = span.get_text(strip=True)
+            # collect all non-span text inside the h1
+            title_text = "".join(t for t in h1.stripped_strings if t != motion_type and t != ":")
+            all_titles.append({"type": motion_type, "title": title_text})
+
     if len(all_titles) != 1:
-        raise ValueError("Title missing or not unique")
-    motie_title = all_titles[0]
+        raise ValueError(f"Title missing or not unique for {url}")
+    motie_type, motie_title = all_titles[0]["type"], all_titles[0]["title"]
 
     return {
         "motie_id": motie_id,
@@ -283,23 +289,24 @@ def parse_motie_info(url: str, soup) -> dict:
         "document_nr": motie_document_nr,
         "date": motie_date,
         "title": motie_title,
+        "type": motie_type,
     }
 
 
-def parse_indieners_info(soup) -> list[dict]:
+def parse_indieners_info(url: str, soup) -> list[dict]:
     indieners = []
     for li in soup.select("ul.m-list li.m-list__item--variant-member"):
         # indiener type
 
         type_span = li.select_one("span.u-font-bold")
         if type_span is None:
-            raise ValueError("Type of (mede)indiener is missing")
+            raise ValueError(f"Type of (mede)indiener is missing for {url}")
         type_text = type_span.get_text(strip=True)
 
         # indiener name
         label_span = li.select_one("span.m-list__label")
         if not label_span:
-            raise ValueError("Name of (mede)indiener is missing")
+            raise ValueError(f"Name of (mede)indiener is missing for {url}")
 
         name_link = label_span.select_one("a.h-link-inverse")
         if name_link:
@@ -309,7 +316,7 @@ def parse_indieners_info(soup) -> list[dict]:
             # Take the text after the type span
             texts = [t.strip() for t in label_span.stripped_strings]
             if len(texts) <= 1:
-                raise ValueError("Name of (mede)indiener is missing")
+                raise ValueError(f"Name of (mede)indiener is missing for {url}")
             full_name = texts[1]
 
             # Split off descriptor at first comma
