@@ -3,14 +3,15 @@ import os
 import re
 import ssl
 from collections.abc import Iterator
+from io import BytesIO
 from pathlib import Path
 
+import click
 import polars as pl
 import requests
 import wget
-from io import BytesIO
-from docx import Document
 from bs4 import BeautifulSoup
+from docx import Document
 
 RESULTS_ROOT = Path("results")
 
@@ -60,7 +61,7 @@ DETAILS_SCHEMA = {
 }
 
 
-def run(begin_page, end_page=None):
+def run(begin_page: int, end_page: int | None = None):
     end_page = max(begin_page or 0, end_page or 0)
 
     result = None
@@ -72,9 +73,6 @@ def run(begin_page, end_page=None):
             stemming_id = data["stemming"]["stemming_id"].item()
 
             write_tables(data, stemming_id)
-
-            break  # TODO: remove debugging break
-        break  # TODO: remove debugging break
 
 
 def parse_listings_page(url) -> Iterator[dict[str, pl.DataFrame]]:
@@ -287,7 +285,7 @@ def parse_motie_info(url: str, soup) -> dict:
     download_tag = soup.select_one('a[aria-label^="Download kamerstuk"]')
     if download_tag is None:
         raise ValueError(f"Motie PDF is missing for {url}")
-    motie_download = DOWNLOAD_URL.format(link=download_tag['href'].strip("/"))
+    motie_download = DOWNLOAD_URL.format(link=download_tag["href"].strip("/"))
 
     # motion text
     content = soup.select_one("div.m-modal__content")
@@ -307,19 +305,19 @@ def parse_motie_info(url: str, soup) -> dict:
         doc = Document(BytesIO(response.content))
 
         text_parts = []
-    
+
         # paragraphs
         for p in doc.paragraphs:
             if p.text.strip():
                 text_parts.append(p.text.strip())
-        
+
         # tables
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
                     if cell.text.strip():
                         text_parts.append(cell.text.strip())
-        
+
         # combine and normalize whitespace
         motie_text = " ".join(text_parts)
         motie_text = " ".join(motie_text.split())
@@ -409,5 +407,13 @@ def merge_tables(
     return output
 
 
+@click.command()
+@click.argument("begin_page", type=int)
+@click.argument("end_page", type=int, required=False)
+def cli(begin_page, end_page):
+    """Scrape Tweede Kamer motions from BEGIN_PAGE to END_PAGE."""
+    run(begin_page, end_page)
+
+
 if __name__ == "__main__":
-    run(2)
+    cli()
