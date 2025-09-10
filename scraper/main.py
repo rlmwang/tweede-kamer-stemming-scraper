@@ -441,7 +441,8 @@ def write_tables(data: dict[str, pl.DataFrame]):
 
 
 def merge_tables(
-    data_a: dict[str, pl.DataFrame] | None, data_b: dict[str, pl.DataFrame],
+    data_a: dict[str, pl.DataFrame] | None,
+    data_b: dict[str, pl.DataFrame],
 ) -> dict[str, pl.DataFrame]:
     if data_a is None:
         return data_b
