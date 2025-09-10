@@ -25,8 +25,8 @@ MOTIE_URL = "https://www.tweedekamer.nl/{link}"
 STEMMING_SCHEMA = {
     "stemming_id": str,
     "stemming_did": str,
-    "title": str,
-    "date": str,
+    "titel": str,
+    "datum": str,
     "type": str,
 }
 MOTIE_SCHEMA = {
@@ -34,8 +34,8 @@ MOTIE_SCHEMA = {
     "motie_id": str,
     "motie_did": str,
     "document_nr": str,
-    "date": str,
-    "title": str,
+    "datum": str,
+    "titel": str,
     "type": str,
     "besluit": str,
     "uitslag": str,
@@ -173,8 +173,8 @@ def parse_stemming_page_info(url: str, soup) -> dict:
     return {
         "stemming_id": stemming_id,
         "stemming_did": stemming_did,
-        "title": stemming_title,
-        "date": stemming_date,
+        "titel": stemming_title,
+        "datum": stemming_date,
         "type": stemming_type,
     }
 
@@ -277,18 +277,18 @@ def parse_motie_info(url: str, soup) -> dict:
             motion_type = span.get_text(strip=True)
             # collect all non-span text inside the h1
             title_text = "".join(t for t in h1.stripped_strings if t != motion_type and t != ":")
-            all_titles.append({"type": motion_type, "title": title_text})
+            all_titles.append({"type": motion_type, "titel": title_text})
 
     if len(all_titles) != 1:
         raise ValueError(f"Title missing or not unique for {url}")
-    motie_type, motie_title = all_titles[0]["type"], all_titles[0]["title"]
+    motie_type, motie_title = all_titles[0]["type"], all_titles[0]["titel"]
 
     return {
         "motie_id": motie_id,
         "motie_did": motie_did,
         "document_nr": motie_document_nr,
-        "date": motie_date,
-        "title": motie_title,
+        "datum": motie_date,
+        "titel": motie_title,
         "type": motie_type,
     }
 
@@ -416,9 +416,9 @@ def parse_motie_page_(url):
         {
             "document_nr": doc_number,
             "Subject": subject,
-            "Date": date,
+            "datum": date,
             "Text": motion_text,
-            "Title": page_title,
+            "titel": page_title,
             "State_Document": state_doc,
         },
         ignore_index=True,
