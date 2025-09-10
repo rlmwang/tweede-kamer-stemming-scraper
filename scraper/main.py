@@ -6,9 +6,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import polars as pl
-import PyPDF2
 import requests
 import wget
+from io import BytesIO
+from docx import Document
 from bs4 import BeautifulSoup
 
 RESULTS_ROOT = Path("results")
@@ -20,7 +21,7 @@ STEMMINGSUITSLAGEN_URL = (
 )
 DEBAT_URL = "https://www.tweedekamer.nl/{link}"
 MOTIE_URL = "https://www.tweedekamer.nl/{link}"
-
+DOWNLOAD_URL = "https://www.tweedekamer.nl/{link}"
 
 STEMMING_SCHEMA = {
     "stemming_id": str,
@@ -37,6 +38,9 @@ MOTIE_SCHEMA = {
     "datum": str,
     "titel": str,
     "type": str,
+    "text": str,
+    "is_fallback": bool,
+    "download": str,
     "besluit": str,
     "uitslag": str,
     "voor": int,
@@ -279,6 +283,47 @@ def parse_motie_info(url: str, soup) -> dict:
             title_text = "".join(t for t in h1.stripped_strings if t != motion_type and t != ":")
             all_titles.append({"type": motion_type, "titel": title_text})
 
+    # motie pdf url
+    download_tag = soup.select_one('a[aria-label^="Download kamerstuk"]')
+    if download_tag is None:
+        raise ValueError(f"Motie PDF is missing for {url}")
+    motie_download = DOWNLOAD_URL.format(link=download_tag['href'].strip("/"))
+
+    # motion text
+    content = soup.select_one("div.m-modal__content")
+
+    if content:
+        is_fallback = False
+
+        # normalize whitespace
+        motie_text = " ".join(t.strip() for t in content.stripped_strings)
+        motie_text = " ".join(motie_text.split())
+    else:
+        is_fallback = True
+
+        # fallback to parsing download
+        response = requests.get(motie_download)
+        response.raise_for_status()
+        doc = Document(BytesIO(response.content))
+
+        text_parts = []
+    
+        # paragraphs
+        for p in doc.paragraphs:
+            if p.text.strip():
+                text_parts.append(p.text.strip())
+        
+        # tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        text_parts.append(cell.text.strip())
+        
+        # combine and normalize whitespace
+        motie_text = " ".join(text_parts)
+        motie_text = " ".join(motie_text.split())
+
     if len(all_titles) != 1:
         raise ValueError(f"Title missing or not unique for {url}")
     motie_type, motie_title = all_titles[0]["type"], all_titles[0]["titel"]
@@ -290,6 +335,9 @@ def parse_motie_info(url: str, soup) -> dict:
         "datum": motie_date,
         "titel": motie_title,
         "type": motie_type,
+        "text": motie_text,
+        "is_fallback": is_fallback,
+        "download": motie_download,
     }
 
 
@@ -329,101 +377,6 @@ def parse_indieners_info(url: str, soup) -> list[dict]:
         indieners.append({"type": type_text, "name": name_text})
 
     return indieners
-
-
-def parse_motie_page_(url):
-    # Catching information of the motion and of the persons who drew or supported the motion
-    supporter_info_0 = page.find("h2")
-    general_info = page.find("div", class_="col-md-3").find_all("div", class_="link-list__text")
-    date = general_info[0].text
-    doc_number = general_info[1].text
-
-    # if the motion, identified by the doc_number, is already in the table, then nothing is appended and the function is ended.
-    if doc_number in motie_table.document_nr.values:
-        return motie_table, indieners_table, stemming_table, activities_table
-
-    state_doc = general_info[2].text
-    subject = page.find("h1", class_="section__title").text
-    subject = re.sub(" +", " ", subject.replace("\n", ""))
-    page_title = page.title.text
-    while supporter_info_0.next_sibling.next_sibling is not None:
-        supporter_info_0 = supporter_info_0.next_sibling.next_sibling
-        raw_individual_info = supporter_info_0.find_all(text=True)
-        indieners_table = indieners_table.append(
-            {
-                "document_nr": doc_number,
-                "name_submitter": raw_individual_info[5],
-                "submitter_type": raw_individual_info[4],
-                "party_submitter": raw_individual_info[7],
-                "personal_page": "https://www.tweedekamer.nl{}".format(
-                    supporter_info_0.find("a")["href"]
-                ),
-            },
-            ignore_index=True,
-        )
-    # Catching the Vote (if the vote has been casted)
-    if page.find("table", class_="vote-result-table") is None:
-        vote_list = "De stemming is niet bekend."
-    else:
-        tables = page.find_all("table", class_="vote-result-table")
-        for table in tables:
-            choice = table.th.text
-            parties = table.find_all("tr")
-            for party in parties[1::]:
-                party_name = party.select("td")[0].text
-                count_vote = 0
-                if len(party.select("td")) > 1:
-                    count_vote = int(party.select("td > span")[1].text)
-                stemming_table = stemming_table.append(
-                    {
-                        "document_nr": doc_number,
-                        "party_name": party_name.replace("\n", ""),
-                        "vote_count": count_vote,
-                        "vote": choice,
-                    },
-                    ignore_index=True,
-                )
-
-    # Reading the motion from the PDF. PDF is temporarily downloaded and only the text of the motion is scraped
-    sub_url_pdf = page("a", class_="button ___rounded ___download")[0]["href"]
-    if sub_url_pdf[-3::] == "pdf":
-        pdf_url = "https://www.tweedekamer.nl/" + sub_url_pdf
-        ssl._create_default_https_context = (
-            ssl._create_unverified_context
-        )  # included because of an SSL error on my machine
-        reader = PyPDF2.PdfFileReader(wget.download(pdf_url, "downloaded_motie.pdf"))
-        pdf_text = reader.getPage(0).extractText()
-        t_begin = pdf_text.find("De Kamer")
-        ending_note = "en gaat over tot de orde van de dag."
-        t_end = pdf_text.find(ending_note)
-        motion_text = pdf_text[t_begin:t_end] + ending_note
-        motion_text = motion_text.replace("\n", "")
-        os.remove("downloaded_motie.pdf")
-    else:
-        motion_text = "Het document is geen PDF-formaat"
-
-    # Catching de voting and debate activities that are linked to this debate
-    if page.find("h2", string="Activiteiten"):
-        cards = page.find("h2", string="Activiteiten").parent.find_all("a", class_="card ___small")
-        if len(cards) > 0:
-            for x in cards:
-                activities_url = "https://www.tweedekamer.nl{}".format(x["href"])
-                activities_table = activities_table.append(
-                    {"document_nr": doc_number, "activities": activities_url}, ignore_index=True
-                )
-
-    motie_table = motie_table.append(
-        {
-            "document_nr": doc_number,
-            "Subject": subject,
-            "datum": date,
-            "Text": motion_text,
-            "titel": page_title,
-            "State_Document": state_doc,
-        },
-        ignore_index=True,
-    )
-    return motie_table, indieners_table, stemming_table, activities_table
 
 
 # UTILS
