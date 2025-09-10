@@ -55,6 +55,43 @@ DETAILS_SCHEMA = {
 }
 
 
+def run(begin_page, end_page=None):
+    end_page = max(begin_page or 0, end_page or 0)
+
+    result = None
+    for i in tqdm(range(begin_page, end_page + 1)):
+        data = parse_listings_page(
+            url=STEMMINGSUITSLAGEN_URL.format(page=i),
+        )
+        result = merge_tables(result, data)
+
+        break  # TODO: remove debugging break
+
+    write_tables(result)
+
+
+def parse_listings_page(url) -> dict[str, pl.DataFrame]:
+    resp = requests.get(url)
+    if not resp.ok:
+        raise ValueError(f"Page {url} does not respond")
+
+    page = resp.content
+    soup = BeautifulSoup(page, "lxml")
+    links = [a["href"] for a in soup.select("h4.u-mt-0 > a")]
+
+    if len(links) == 0:
+        raise ValueError("No links found")
+
+    result = None
+    for link in links:
+        print(link)
+
+        data = parse_stemming_page(url=DEBAT_URL.format(link=link.strip("/")))
+        result = merge_tables(result, data)
+
+    return result
+
+
 def parse_stemming_page(url) -> dict[str, pl.DataFrame]:
     data = create_tables()
 
@@ -385,41 +422,6 @@ def parse_motie_page_(url):
     return motie_table, indieners_table, stemming_table, activities_table
 
 
-# By defining the range (which will eventually account for every list page), the scraping can begin.
-def run(begin_page, end_page=None):
-    end_page = max(begin_page or 0, end_page or 0)
-
-    result = None
-    for i in tqdm(range(begin_page, end_page + 1)):
-        url = STEMMINGSUITSLAGEN_URL.format(page=i)
-
-        resp = requests.get(url)
-        if not resp.ok:
-            raise ValueError(f"Page {url} does not respond")
-
-        page = resp.content
-        soup = BeautifulSoup(page, "lxml")
-        links = [a["href"] for a in soup.select("h4.u-mt-0 > a")]
-
-        if len(links) == 0:
-            raise ValueError("No links found")
-
-        for link in links:
-            print(link)
-
-            data = parse_stemming_page(url=DEBAT_URL.format(link=link.strip("/")))
-
-            if result is None:
-                result = data
-            else:
-                result = merge_tables(result, data)
-
-            break
-        break
-
-    write_tables(result)
-
-
 # UTILS
 
 
@@ -439,8 +441,10 @@ def write_tables(data: dict[str, pl.DataFrame]):
 
 
 def merge_tables(
-    data_a: dict[str, pl.DataFrame], data_b: dict[str, pl.DataFrame]
+    data_a: dict[str, pl.DataFrame] | None, data_b: dict[str, pl.DataFrame],
 ) -> dict[str, pl.DataFrame]:
+    if data_a is None:
+        return data_b
     output = {}
     for key in data_a.keys():
         output[key] = pl.concat([data_a[key], data_b[key]])
