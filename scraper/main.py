@@ -11,7 +11,6 @@ import wget
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
-
 RESULTS_ROOT = Path("results")
 
 STEMMINGSUITSLAGEN_URL = (
