@@ -136,6 +136,16 @@ def parse_motie_page(
     for row in indieners_info:
         row['motie_id'] = motie_info['motie_id']
 
+    h2 = soup.find("h2", string=lambda t: t and "Stemmingsuitslagen" in t)
+    if h2 is not None:
+        # motie uitslag text
+        h3 = h2.find_next("h3")
+        if h3 is None:
+            raise ValueError('Uitslag is missing from stemmingsuitslagen')
+        motie_info['uitslag'] = h3.get_text(strip=True)
+    else:
+        motie_info['uitslag'] = None
+
     data['motie'] = pl.concat([data['motie'], pl.DataFrame(motie_info, schema=MOTIE_SCHEMA)])
     data['indieners'] = pl.concat([data['indieners'], pl.DataFrame(indieners_info, schema=INDIENERS_SCHEMA)])
 
@@ -337,7 +347,7 @@ MOTIE_SCHEMA = {
     'date': str,
     'title': str,
     'besluit': str,
-    # 'uitslag': str,
+    'uitslag': str,
 }
 INDIENERS_SCHEMA = {
     'motie_id': str,
