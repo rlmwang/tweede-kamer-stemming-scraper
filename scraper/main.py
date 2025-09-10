@@ -150,12 +150,27 @@ def parse_motie_page(
         motie_info['vereist'] = int(labels[1].find("span").get_text(strip=True).split(": ")[1])
         motie_info['totaal'] = int(labels[2].find("span").get_text(strip=True).split(": ")[1])
 
+        # motie uitslag details
+        rows = soup.select("#votes-details table.h-table-bordered tbody tr")[1:]
+        details_info = [
+            {
+                "fractie": r.find_all("td")[0].get_text(strip=True),
+                "zetels": int(r.find_all("td")[1].get_text(strip=True)),
+                "stem": r.find_all("td")[2].get_text(strip=True)
+            }
+            for r in rows
+        ]
+        for row in details_info:
+            row['motie_id'] = motie_info['motie_id']
     else:
         for key in ['uitslag', 'voor', 'vereist', 'totaal']:
             motie_info[key] = None
+        details_info = []
 
+    # dump data into tables
     data['motie'] = pl.concat([data['motie'], pl.DataFrame(motie_info, schema=MOTIE_SCHEMA)])
     data['indieners'] = pl.concat([data['indieners'], pl.DataFrame(indieners_info, schema=INDIENERS_SCHEMA)])
+    data['details'] = pl.concat([data['details'], pl.DataFrame(details_info, schema=DETAILS_SCHEMA)])
 
     return data
 
@@ -304,10 +319,10 @@ def parse_motie_page_(url):
 
 # By defining the range (which will eventually account for every list page), the scraping can begin.
 def run(begin_page, end_page=None):
-    end_page = begin_page + 1 if end_page == None else end_page
+    end_page = max(begin_page or 0, end_page or 0)
 
     result = None
-    for i in tqdm(range(begin_page, end_page)):
+    for i in tqdm(range(begin_page, end_page + 1)):
         url = STEMMINGSUITSLAGEN_URL.format(page=i)
 
         resp = requests.get(url)
@@ -365,6 +380,12 @@ INDIENERS_SCHEMA = {
     'name': str,
     'type': str,
 }
+DETAILS_SCHEMA = {
+    'motie_id': str,
+    'fractie': str,
+    'zetels': str,
+    'stem': str,
+}
 
 
 def create_tables() -> dict[str, pl.DataFrame]:
@@ -372,6 +393,7 @@ def create_tables() -> dict[str, pl.DataFrame]:
         'stemming': pl.DataFrame(schema=STEMMING_SCHEMA),
         'motie': pl.DataFrame(schema=MOTIE_SCHEMA),
         'indieners': pl.DataFrame(schema=INDIENERS_SCHEMA),
+        'details': pl.DataFrame(schema=DETAILS_SCHEMA),
     }
 
 
