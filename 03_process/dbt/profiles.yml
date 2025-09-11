@@ -1,0 +1,12 @@
+process:
+  outputs:
+    dev:
+      dbname: stemmingsuitslagen
+      host: localhost
+      pass: postgres
+      port: 5432
+      schema: staging
+      threads: 1
+      type: postgres
+      user: postgres
+  target: dev

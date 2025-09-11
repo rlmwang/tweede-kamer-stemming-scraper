@@ -1,0 +1,15 @@
+version: 1
+
+sources:
+  - name: stemmingsuitslagen
+    database: "{{ target.database }}"
+    schema: stemmingsuitslagen
+    tables:
+      - name: stemming
+        description: "Metadata about each voting session"
+      - name: motie
+        description: "All motions and their text, votes, etc."
+      - name: indieners
+        description: "List of submitters (indieners) for motions"
+      - name: details
+        description: "Detailed voting results by party"

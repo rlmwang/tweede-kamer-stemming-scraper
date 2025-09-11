@@ -1,5 +1,5 @@
 [project]
-name = "scraper"
+name = "scrape"
 version = "0.1.0"
 description = "A Python scraper for Tweede Kamer motions"
 readme = "README.md"

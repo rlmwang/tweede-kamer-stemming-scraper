@@ -10,11 +10,11 @@ from dotenv import load_dotenv
 env_path = Path.cwd() / ".env"
 load_dotenv(dotenv_path=env_path, override=True)
 
-POSTGRES_CONTAINER_NAME = os.getenv("POSTGRES_CONTAINER_NAME", "tweede-kamer-db")
-POSTGRES_USER = os.getenv("POSTGRES_USER", "stemmer")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "stemmen")
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
-POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
+POSTGRES_CONTAINER_NAME = os.getenv("POSTGRES_CONTAINER_NAME")
+POSTGRES_USER = os.getenv("POSTGRES_USER")
+POSTGRES_DB = os.getenv("POSTGRES_DB")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT")
 
 
 @click.group()
