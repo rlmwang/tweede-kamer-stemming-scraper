@@ -1,0 +1,62 @@
+version: 1
+
+models:
+  - name: stg__stemming
+    description: "Staging model for stemming table"
+    columns:
+      - name: stemming_id
+    tests:
+      - unique:
+          column_name: stemming_id
+      - not_null:
+          column_name: stemming_id
+
+  - name: stg__motie
+    description: "Staging model for motie table"
+    columns:
+      - name: motie_id
+      - name: stemming_id
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - stemming_id
+              - motie_id
+      - not_null:
+          column_name: motie_id
+
+  - name: stg__indieners
+    description: "Staging model for indieners table"
+    columns:
+      - name: motie_id
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - stemming_id
+              - motie_id
+              - name
+      - not_null:
+          column_name: stemming_id
+      - not_null:
+          column_name: motie_id
+      - not_null:
+          column_name: name
+
+  - name: stg__details
+    description: "Staging model for details table"
+    columns:
+      - name: motie_id
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - stemming_id
+              - motie_id
+              - fractie
+      - not_null:
+          column_name: stemming_id
+      - not_null:
+          column_name: motie_id
+      - not_null:
+          column_name: fractie
