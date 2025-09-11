@@ -10,10 +10,11 @@ import click
 import polars as pl
 import requests
 import wget
+from dateparser import parse as parse_date
 from bs4 import BeautifulSoup
 from docx import Document
 
-RESULTS_ROOT = Path("results")
+DEFAULT_OUTPUT_DIR = Path("../data")
 
 STEMMINGSUITSLAGEN_URL = (
     "https://www.tweedekamer.nl/kamerstukken/stemmingsuitslagen"
@@ -49,11 +50,13 @@ MOTIE_SCHEMA = {
     "totaal": int,
 }
 INDIENERS_SCHEMA = {
+    "stemming_id": str,
     "motie_id": str,
     "name": str,
     "type": str,
 }
 DETAILS_SCHEMA = {
+    "stemming_id": str,
     "motie_id": str,
     "fractie": str,
     "zetels": str,
@@ -61,7 +64,7 @@ DETAILS_SCHEMA = {
 }
 
 
-def run(begin_page: int, end_page: int | None = None):
+def run(begin_page: int, end_page: int | None = None, output_dir: str = DEFAULT_OUTPUT_DIR):
     end_page = max(begin_page or 0, end_page or 0)
 
     result = None
@@ -70,9 +73,13 @@ def run(begin_page: int, end_page: int | None = None):
         for data in parse_listings_page(url=url):
             if len(data["stemming"]) != 1:
                 raise ValueError(f"Multiple votings in one page for {url}")
-            stemming_id = data["stemming"]["stemming_id"].item()
 
-            write_tables(data, stemming_id)
+            stem_id = data["stemming"]["stemming_id"].item()
+            stem_dt = data["stemming"]["datum"].item()
+            stem_dt = parse_date(stem_dt, languages=["nl"])
+            stem_dt = stem_dt.strftime("%Y-%m-%d")
+
+            write_tables(data, Path(output_dir) / stem_dt / stem_id)
 
 
 def parse_listings_page(url) -> Iterator[dict[str, pl.DataFrame]]:
@@ -209,6 +216,7 @@ def parse_motie_page(
 
     indieners_info = parse_indieners_info(url=url, soup=soup)
     for row in indieners_info:
+        row["stemming_id"] = motie_info["stemming_id"]
         row["motie_id"] = motie_info["motie_id"]
 
     h2 = soup.find("h2", string=lambda t: t and "Stemmingsuitslagen" in t)
@@ -236,6 +244,7 @@ def parse_motie_page(
             for r in rows
         ]
         for row in details_info:
+            row["stemming_id"] = motie_info["stemming_id"]
             row["motie_id"] = motie_info["motie_id"]
     else:
         for key in ["uitslag", "voor", "vereist", "totaal"]:
@@ -402,10 +411,10 @@ def create_tables() -> dict[str, pl.DataFrame]:
     }
 
 
-def write_tables(data: dict[str, pl.DataFrame], name: str):
-    (RESULTS_ROOT / name).mkdir(parents=True, exist_ok=True)
+def write_tables(data: dict[str, pl.DataFrame], path: Path):
+    path.mkdir(parents=True, exist_ok=True)
     for key, table in data.items():
-        table.write_csv(RESULTS_ROOT / name / f"{key}.csv")
+        table.write_csv(path / f"{key}.csv")
 
 
 def merge_tables(
@@ -423,9 +432,10 @@ def merge_tables(
 @click.command()
 @click.argument("begin_page", type=int)
 @click.argument("end_page", type=int, required=False)
-def cli(begin_page, end_page):
+@click.argument("output_dir", type=str, default=DEFAULT_OUTPUT_DIR)
+def cli(begin_page, end_page, output_dir):
     """Scrape Tweede Kamer motions from BEGIN_PAGE to END_PAGE."""
-    run(begin_page, end_page)
+    run(begin_page, end_page, output_dir)
 
 
 if __name__ == "__main__":
