@@ -5,6 +5,7 @@ import ssl
 from collections.abc import Iterator
 from io import BytesIO
 from pathlib import Path
+from datetime import date, datetime
 
 import click
 import polars as pl
@@ -19,6 +20,7 @@ DEFAULT_OUTPUT_DIR = Path("../data")
 STEMMINGSUITSLAGEN_URL = (
     "https://www.tweedekamer.nl/kamerstukken/stemmingsuitslagen"
     "?qry=%2A&fld_tk_categorie=Kamerstukken&fld_prl_kamerstuk=Stemmingsuitslagen"
+    "&fromdate={from_date}&todate={to_date}"
     "&srt=date%3Adesc%3Adate&page={page}"
 )
 DEBAT_URL = "https://www.tweedekamer.nl/{link}"
@@ -64,13 +66,27 @@ DETAILS_SCHEMA = {
 }
 
 
-def run(begin_page: int, end_page: int | None = None, output_dir: str = DEFAULT_OUTPUT_DIR):
-    end_page = max(begin_page or 0, end_page or 0)
+def run(
+    from_date: date,
+    to_date: date | None = None,
+    output_dir: str = DEFAULT_OUTPUT_DIR,
+):
+    to_date = max(to_date or date.today(), from_date)
 
+    page = 0
     result = None
-    for i in range(begin_page, end_page + 1):
-        url = STEMMINGSUITSLAGEN_URL.format(page=i)
-        for data in parse_listings_page(url=url):
+    while True:
+        url = STEMMINGSUITSLAGEN_URL.format(from_date=from_date, to_date=to_date, page=page)
+        resp = requests.get(url)
+        if not resp.ok:
+            raise ValueError(f"Page {url} does not respond")
+
+        if "Geen zoekresultaten" in resp.text:
+            print(f"No further pages found.")
+            break
+
+        soup = BeautifulSoup(resp.content, "lxml")
+        for data in parse_listings_page(url=url, soup=soup):
             if len(data["stemming"]) != 1:
                 raise ValueError(f"Multiple votings in one page for {url}")
 
@@ -80,17 +96,11 @@ def run(begin_page: int, end_page: int | None = None, output_dir: str = DEFAULT_
             stem_dt = stem_dt.strftime("%Y-%m-%d")
 
             write_tables(data, Path(output_dir) / stem_dt / stem_id)
+        page += 1
 
 
-def parse_listings_page(url) -> Iterator[dict[str, pl.DataFrame]]:
-    resp = requests.get(url)
-    if not resp.ok:
-        raise ValueError(f"Page {url} does not respond")
-
-    page = resp.content
-    soup = BeautifulSoup(page, "lxml")
+def parse_listings_page(url: str, soup) -> Iterator[dict[str, pl.DataFrame]]:
     links = [a["href"] for a in soup.select("h4.u-mt-0 > a")]
-
     if len(links) == 0:
         raise ValueError(f"No links found for {url}")
 
@@ -100,14 +110,13 @@ def parse_listings_page(url) -> Iterator[dict[str, pl.DataFrame]]:
         yield parse_stemming_page(url=DEBAT_URL.format(link=link.strip("/")))
 
 
-def parse_stemming_page(url) -> dict[str, pl.DataFrame]:
+def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
     data = create_tables()
 
     resp = requests.get(url)
     if not resp.ok:
         raise ValueError(f"Page {url} does not respond")
-    page = resp.content
-    soup = BeautifulSoup(page, "lxml")
+    soup = BeautifulSoup(resp.content, "lxml")
 
     # parse voting
 
@@ -201,8 +210,7 @@ def parse_motie_page(
     resp = requests.get(url)
     if not resp.ok:
         raise ValueError(f"Page {url} does not respond")
-    page = resp.content
-    soup = BeautifulSoup(page, "lxml")
+    soup = BeautifulSoup(resp.content, "lxml")
 
     motie_info = parse_motie_info(url=url, soup=soup)
     if motie_info is None:
@@ -430,12 +438,14 @@ def merge_tables(
 
 
 @click.command()
-@click.argument("begin_page", type=int)
-@click.argument("end_page", type=int, required=False)
+@click.argument("from_date", type=str)
+@click.argument("to_date", type=str, required=False)
 @click.argument("output_dir", type=str, default=DEFAULT_OUTPUT_DIR)
-def cli(begin_page, end_page, output_dir):
+def cli(from_date, to_date, output_dir):
     """Scrape Tweede Kamer motions from BEGIN_PAGE to END_PAGE."""
-    run(begin_page, end_page, output_dir)
+    from_date = datetime.strptime(from_date, "%Y-%m-%d").date()
+    to_date = datetime.strptime(to_date, "%Y-%m-%d").date()
+    run(from_date, to_date, output_dir)
 
 
 if __name__ == "__main__":
