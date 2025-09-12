@@ -147,13 +147,15 @@ def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
             raise ValueError(f"Cannot find decision of motion {k} for {url}")
         besluit = besluit_tag.get_text(strip=True).strip(".")
 
-        motie_data = parse_motie_page(
-            url=MOTIE_URL.format(link=link.strip("/")),
-            stemming_id=stemming_info["stemming_id"],
-            besluit=besluit,
-        )
-        if motie_data is None:
-            print(f"Skipped {url}")
+        try:
+            motie_data = parse_motie_page(
+                url=MOTIE_URL.format(link=link.strip("/")),
+                stemming_id=stemming_info["stemming_id"],
+                besluit=besluit,
+            )
+        except Exception as err:
+            print(f"Failed {url}")
+            write_error(url=url, err=err)
             continue
 
         data = merge_tables(data, motie_data)
@@ -204,7 +206,7 @@ def parse_motie_page(
     url: str,
     stemming_id: str,
     besluit: str | None,
-) -> dict[str, pl.DataFrame] | None:
+) -> dict[str, pl.DataFrame]:
     data = create_tables()
 
     resp = requests.get(url)
@@ -213,9 +215,6 @@ def parse_motie_page(
     soup = BeautifulSoup(resp.content, "lxml")
 
     motie_info = parse_motie_info(url=url, soup=soup)
-    if motie_info is None:
-        return None
-
     motie_info = {
         "stemming_id": stemming_id,
         **motie_info,
@@ -271,7 +270,7 @@ def parse_motie_page(
     return data
 
 
-def parse_motie_info(url: str, soup) -> dict | None:
+def parse_motie_info(url: str, soup) -> dict:
     # motie id & did
     match = re.search(r"id=([^&]+)&(?:did|dossier)=([^&]+)", url)
     if not match:
@@ -312,8 +311,7 @@ def parse_motie_info(url: str, soup) -> dict | None:
     # check for early exits
     if motie_type.lower() == "wetsvoorstel":
         # TODO: implement wetsvoorstellen
-        print("Wetsvoorstel detected!")
-        return None
+        raise NotImplementedError("Wetsvoorstellen not supported yet")
 
     # motie pdf url
     download_tag = soup.select_one('a[aria-label^="Download kamerstuk"]')
@@ -435,6 +433,27 @@ def merge_tables(
     for key in data_a.keys():
         output[key] = pl.concat([data_a[key], data_b[key]])
     return output
+
+
+def write_error(url: str, err: Exception):
+    file_path = Path(".run") / "errors.csv"
+    if file_path.exists():
+        err_data = pl.read_csv(file_path)
+    else:
+        err_data = pl.DataFrame(schema={"url": str, "error": str})
+    err_data = pl.concat(
+        [
+            err_data,
+            pl.DataFrame(
+                {
+                    "url": url,
+                    "error": str(err),
+                }
+            ),
+        ]
+    )
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    err_data.write_csv(file_path)
 
 
 @click.command()
