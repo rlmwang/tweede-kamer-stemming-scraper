@@ -15,7 +15,6 @@ from dateparser import parse as parse_date
 from bs4 import BeautifulSoup
 from docx import Document
 
-DEFAULT_OUTPUT_DIR = Path("../data")
 
 STEMMINGSUITSLAGEN_URL = (
     "https://www.tweedekamer.nl/kamerstukken/stemmingsuitslagen"
@@ -68,8 +67,8 @@ DETAILS_SCHEMA = {
 
 def run(
     from_date: date,
-    to_date: date | None = None,
-    output_dir: str = DEFAULT_OUTPUT_DIR,
+    to_date: date | None,
+    output_dir: str,
 ):
     to_date = max(to_date or date.today(), from_date)
 
@@ -454,18 +453,3 @@ def write_error(url: str, err: Exception):
     )
     file_path.parent.mkdir(parents=True, exist_ok=True)
     err_data.write_csv(file_path)
-
-
-@click.command()
-@click.argument("from_date", type=str)
-@click.argument("to_date", type=str, required=False)
-@click.argument("output_dir", type=str, default=DEFAULT_OUTPUT_DIR)
-def cli(from_date, to_date, output_dir):
-    """Scrape Tweede Kamer motions from BEGIN_PAGE to END_PAGE."""
-    from_date = datetime.strptime(from_date, "%Y-%m-%d").date()
-    to_date = datetime.strptime(to_date, "%Y-%m-%d").date()
-    run(from_date, to_date, output_dir)
-
-
-if __name__ == "__main__":
-    cli()
