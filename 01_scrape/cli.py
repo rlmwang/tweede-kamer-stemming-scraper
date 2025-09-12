@@ -1,6 +1,6 @@
 import click
 from pathlib import Path
-from scrape.main import run as run_scraper
+from scrape import main as scraper
 from datetime import datetime
 
 
@@ -21,7 +21,13 @@ def run(from_date, to_date, output_dir):
     """Scrape Tweede Kamer motions from BEGIN_PAGE to END_PAGE."""
     from_date = datetime.strptime(from_date, "%Y-%m-%d").date()
     to_date = datetime.strptime(to_date, "%Y-%m-%d").date() if to_date else None
-    run_scraper(from_date, to_date, output_dir)
+    scraper.run(from_date, to_date, output_dir)
+
+
+@cli.command()
+@click.argument("output_dir", type=str, default=DEFAULT_OUTPUT_DIR)
+def rebuild_progress(output_dir):
+    scraper.rebuild_progress(output_dir)
 
 
 if __name__ == "__main__":

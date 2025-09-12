@@ -2,6 +2,7 @@
 import os
 import re
 import ssl
+import json
 from collections.abc import Iterator
 from io import BytesIO
 from pathlib import Path
@@ -71,6 +72,7 @@ def run(
     output_dir: str,
 ):
     to_date = max(to_date or date.today(), from_date)
+    progress = read_progress()
 
     page = 0
     result = None
@@ -95,6 +97,9 @@ def run(
             stem_dt = stem_dt.strftime("%Y-%m-%d")
 
             write_tables(data, Path(output_dir) / stem_dt / stem_id)
+
+            progress.setdefault(stem_dt, []).append(stem_id)
+            write_progress(progress)
         page += 1
 
 
@@ -435,21 +440,52 @@ def merge_tables(
 
 
 def write_error(url: str, err: Exception):
+    err_row = pl.DataFrame(
+        {
+            "url": url,
+            "error": str(err),
+        }
+    )
     file_path = Path(".run") / "errors.csv"
     if file_path.exists():
         err_data = pl.read_csv(file_path)
     else:
         err_data = pl.DataFrame(schema={"url": str, "error": str})
-    err_data = pl.concat(
-        [
-            err_data,
-            pl.DataFrame(
-                {
-                    "url": url,
-                    "error": str(err),
-                }
-            ),
-        ]
-    )
+    err_data = pl.concat([err_data, err_row])
     file_path.parent.mkdir(parents=True, exist_ok=True)
     err_data.write_csv(file_path)
+
+
+def read_progress() -> dict[str, list]:
+    file_path = Path(".run") / "progress.json"
+    if file_path.exists():
+        with file_path.open(encoding="utf-8") as f:
+            progress = json.load(f)
+    else:
+        progress = {}
+    return progress
+
+
+def write_progress(progress: dict[str, list]):
+    file_path = Path(".run") / "progress.json"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(progress, f, indent=2, ensure_ascii=False)
+
+
+def rebuild_progress(data_path: str):
+    data_path = Path(data_path)
+    file_path = Path(".run") / "progress.json"
+
+    res = {}
+    for folder in data_path.iterdir():
+        if not folder.is_dir():
+            continue
+        key = folder.name
+        res[key] = set()
+        for subfolder in folder.iterdir():
+            if not subfolder.is_dir():
+                continue
+            res[key].add(subfolder.name)
+        res[key] = list(res[key])
+    write_progress(res)
