@@ -62,7 +62,9 @@ DETAILS_SCHEMA = {
     "motie_id": str,
     "fractie": str,
     "zetels": str,
+    "kamerlid": str,
     "stem": str,
+    "niet_deelgenomen": str,
 }
 
 
@@ -192,7 +194,11 @@ def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
             )
         except Exception as err:
             print(f"Failed {url}")
-            write_error(stem_id=stemming_info["stemming_id"], url=url, err=err)
+            write_error(
+                stem_id=stemming_info["stemming_id"],
+                url=MOTIE_URL.format(link=link.strip("/")),
+                err=err,
+            )
             continue
 
         data = merge_tables(data, motie_data)
@@ -278,15 +284,7 @@ def parse_motie_page(
         motie_info["totaal"] = int(labels[2].find("span").get_text(strip=True).split(": ")[1])
 
         # motie uitslag details
-        rows = soup.select("#votes-details table.h-table-bordered tbody tr")[1:]
-        details_info = [
-            {
-                "fractie": r.find_all("td")[0].get_text(strip=True),
-                "zetels": int(r.find_all("td")[1].get_text(strip=True)),
-                "stem": r.find_all("td")[2].get_text(strip=True),
-            }
-            for r in rows
-        ]
+        details_info = parse_details_info(url=url, soup=soup)
         for row in details_info:
             row["stemming_id"] = motie_info["stemming_id"]
             row["motie_id"] = motie_info["motie_id"]
@@ -402,6 +400,66 @@ def parse_motie_info(url: str, soup: BeautifulSoup) -> dict:
         "is_fallback": is_fallback,
         "download": motie_download,
     }
+
+
+def parse_details_info(url: str, soup: BeautifulSoup) -> list[dict]:
+    rows = soup.select("#votes-details table.h-table-bordered tbody tr")[1:]  # skip header
+
+    headers = [th.get_text(strip=True) for th in soup.select("#votes-details table thead th")]
+    if not headers:  # fallback if no <thead>
+        headers = [th.get_text(strip=True) for th in soup.select("#votes-details table tbody tr")[0]]
+
+    # detect format
+    if "Kamerlid" in headers:
+        # format with individual members
+        format_type = "members"
+    else:
+        # format with just faction totals
+        format_type = "totals"
+
+    details_info = []
+    current_fractie = None
+    current_zetels = None
+
+    for r in rows:
+        cells = r.find_all("td")
+        if format_type == "totals":
+            # totals format: 3 columns
+            if len(cells) < 3:
+                continue  # skip malformed row
+            fractie = cells[0].get_text(strip=True)
+            zetels = int(cells[1].get_text(strip=True))
+            stem = cells[2].get_text(strip=True)
+            details_info.append({
+                "fractie": fractie,
+                "zetels": zetels,
+                "kamerlid": None,
+                "stem": stem,
+                "niet_deelgenomen": None,
+            })
+        else:
+            # members format: 5 columns, faction & seat may be rowspaned
+            if len(cells) == 5:
+                # first row of a bloc with rowspan
+                current_fractie = cells[0].get_text(strip=True)
+                current_zetels = int(cells[1].get_text(strip=True))
+                kamerlid = cells[2].get_text(strip=True)
+                stem = cells[3].get_text(strip=True) or None
+                niet_deelgenomen = cells[4].get_text(strip=True) or None
+            else:
+                # subsequent rows
+                kamerlid = cells[0].get_text(strip=True)
+                stem = cells[1].get_text(strip=True) or None
+                niet_deelgenomen = cells[2].get_text(strip=True) or None
+
+            details_info.append({
+                "fractie": current_fractie,
+                "zetels": current_zetels,
+                "kamerlid": kamerlid,
+                "stem": stem,
+                "niet_deelgenomen": niet_deelgenomen
+            })
+    return details_info
 
 
 def parse_indieners_info(url: str, soup: BeautifulSoup) -> list[dict]:
