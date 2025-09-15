@@ -17,10 +17,10 @@ env_path = Path.cwd() / "default.env"
 load_dotenv(dotenv_path=env_path, override=True)
 
 
-def load_csv_to_table(conn, csv_path, table_name):
+def load_csv_to_table(conn, csv_path: str, table_name: str):
     df = pl.read_csv(csv_path, encoding="utf-8")
 
-    # Convert any date columns
+    # Convert date-like columns
     df = df.with_columns(
         pl.col(col).map_elements(
             function=lambda x: parse_date(x, languages=["nl"]).date() if x else None,
@@ -30,15 +30,36 @@ def load_csv_to_table(conn, csv_path, table_name):
         if "datum" in col.lower() or "date" in col.lower()
     )
 
-    # Insert into Postgres
-    cols = df.columns
-    placeholders = ",".join(["%s"] * len(cols))
-    insert_sql = f"INSERT INTO {table_name} ({','.join(cols)}) VALUES ({placeholders})"
+    pk_cols = get_primary_key_columns(conn, table_name)
 
     with conn.cursor() as cur:
         for row in df.iter_rows(named=True):
-            cur.execute(insert_sql, list(row.values()))
+            row_dict = dict(row)
+
+            # Drop PK columns that are None -> let DB default apply
+            cols = [c for c, v in row_dict.items() if not (c in pk_cols and v is None)]
+            vals = [row_dict[c] for c in cols]
+
+            placeholders = ",".join(["%s"] * len(cols))
+            insert_sql = f"INSERT INTO {table_name} ({','.join(cols)}) VALUES ({placeholders})"
+
+            cur.execute(insert_sql, vals)
+
     conn.commit()
+
+
+def get_primary_key_columns(conn, table_name: str) -> list[str]:
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT a.attname
+            FROM pg_index i
+            JOIN pg_attribute a
+              ON a.attrelid = i.indrelid
+             AND a.attnum = ANY(i.indkey)
+            WHERE i.indrelid = %s::regclass
+              AND i.indisprimary;
+        """, (table_name,))
+        return [r[0] for r in cur.fetchall()]
 
 
 @click.command()

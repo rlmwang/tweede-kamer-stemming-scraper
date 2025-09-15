@@ -3,9 +3,9 @@ CREATE TABLE details (
     stemming_id TEXT NOT NULL,
     fractie TEXT,
     zetels TEXT,
-    kamerlid TEXT,
+    kamerlid TEXT DEFAULT 'nvt',
     stem TEXT,
     niet_deelgenomen TEXT,
-    PRIMARY KEY (motie_id, stemming_id, fractie),
+    PRIMARY KEY (motie_id, stemming_id, fractie, kamerlid),
     FOREIGN KEY (motie_id, stemming_id) REFERENCES motie(motie_id, stemming_id)
 );
