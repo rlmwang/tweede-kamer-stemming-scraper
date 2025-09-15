@@ -144,12 +144,10 @@ def parse_listings_page(
         raise ValueError(f"No links found for {url}")
 
     for card in cards:
-        print(card["stem_dt"], card["stem_id"], card["link"])
-
         if select is not None and card["stem_id"] not in select:
-            print("Skipped because not in 'select' argument")
             continue
 
+        print(card["stem_dt"], card["stem_id"], card["link"])
         if not full_refresh and already_processed(progress, card["stem_dt"], card["stem_id"]):
             print("Skipped because already processed")
             continue

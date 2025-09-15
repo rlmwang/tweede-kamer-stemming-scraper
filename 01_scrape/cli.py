@@ -18,7 +18,7 @@ def cli():
 @click.argument("from_date", type=str)
 @click.argument("to_date", type=str, required=False)
 @click.argument("output_dir", type=str, default=DEFAULT_OUTPUT_DIR)
-@click.option("--full_refresh", is_flag=True)
+@click.option("--full-refresh", is_flag=True)
 @click.option("--select", type=str)
 def run(from_date, to_date, output_dir, full_refresh, select):
     """Scrape Tweede Kamer motions from BEGIN_PAGE to END_PAGE."""
