@@ -455,16 +455,10 @@ def parse_details_info(url: str, soup: BeautifulSoup) -> list[dict]:
     if headers not in EXPECTED_HEADERS:
         raise ValueError(f"Unexpected table headers: {headers}")
 
-    # Determine format
-    if headers == EXPECTED_HEADERS[0]:
-        format_type = "totals"
-    else:
-        format_type = "members"
-
-    details_info = []
     current_fractie = None
     current_zetels = None
 
+    details_info = []
     for r in rows:
         cells = r.find_all(["td", "th"])
 
