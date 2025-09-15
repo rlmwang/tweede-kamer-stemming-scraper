@@ -13,7 +13,7 @@ CSV_FILE_ORDER = ["stemming.csv", "motie.csv", "indieners.csv", "details.csv"]
 
 
 # Load top-level .env
-env_path = Path.cwd() / ".env"
+env_path = Path.cwd() / "default.env"
 load_dotenv(dotenv_path=env_path, override=True)
 
 

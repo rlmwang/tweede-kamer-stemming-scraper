@@ -7,7 +7,7 @@ import click
 from dotenv import load_dotenv
 
 # Load top-level .env
-env_path = Path.cwd() / ".env"
+env_path = Path.cwd() / "default.env"
 load_dotenv(dotenv_path=env_path, override=True)
 
 POSTGRES_CONTAINER_NAME = os.getenv("POSTGRES_CONTAINER_NAME")

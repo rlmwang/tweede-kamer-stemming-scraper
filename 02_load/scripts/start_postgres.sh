@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Load variables from .env
-if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+if [ -f default.env ]; then
+  export $(grep -v '^#' default.env | xargs)
 else
-  echo ".env file not found!"
+  echo "default.env file not found!"
   exit 1
 fi
 

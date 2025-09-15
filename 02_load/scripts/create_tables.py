@@ -4,7 +4,7 @@ from pathlib import Path
 import psycopg2
 from dotenv import load_dotenv
 
-env_path = Path.cwd() / ".env"
+env_path = Path.cwd() / "default.env"
 load_dotenv(dotenv_path=env_path, override=True)
 
 
