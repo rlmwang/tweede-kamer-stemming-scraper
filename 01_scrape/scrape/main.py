@@ -175,7 +175,7 @@ def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
 
     cards = soup.select("div.m-card")
     if len(cards) == 0:
-        raise ValueError(f"No motions found for {url}")
+        return data
 
     for k, card in enumerate(cards):
         # Find the main motion link
