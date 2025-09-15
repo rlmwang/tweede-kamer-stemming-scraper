@@ -20,7 +20,7 @@ It extracts motion titles, motion type, text (from HTML or DOCX), vote results, 
 
 ```bash
 git clone https://github.com/yourusername/tweede-kamer-scraper.git
-cd tweede-kamer-scraper/scraper
+cd tweede-kamer-scraper/01_scrape
 ```
 
 2. Install dependencies using uv:
@@ -34,17 +34,14 @@ Usage
 To see CLI options and help:
 
 ```bash
-uv run python -m main --help
+uv run python -m cli --help
 ```
 
 Example commands:
 
 ```bash
-uv run python -m main 0           # Scrape only page 1
-uv run python -m main 0 4         # Scrape pages 1 through 5
+uv run python -m cli run 2025-01-01             # Scrape from Jan 1st, 2025 onwards
+uv run python -m cli run 2025-01-01 2025-01-31  # Scrape the month of Januari, 2025
 ```
-
-* The first argument is begin_page
-* The second argument (optional) is end_page
 
 This will scrape the specified pages and extract all relevant motion data.
