@@ -192,7 +192,7 @@ def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
             )
         except Exception as err:
             print(f"Failed {url}")
-            write_error(url=url, err=err)
+            write_error(stem_id=stemming_info["stemming_id"], url=url, err=err)
             continue
 
         data = merge_tables(data, motie_data)
@@ -472,9 +472,10 @@ def merge_tables(
     return output
 
 
-def write_error(url: str, err: Exception):
+def write_error(stem_id: str, url: str, err: Exception):
     err_row = pl.DataFrame(
         {
+            "stemming_id": stem_id,
             "url": url,
             "error": str(err),
         }
@@ -483,7 +484,7 @@ def write_error(url: str, err: Exception):
     if file_path.exists():
         err_data = pl.read_csv(file_path)
     else:
-        err_data = pl.DataFrame(schema={"url": str, "error": str})
+        err_data = pl.DataFrame(schema={"stemming_id": str, "url": str, "error": str})
     err_data = pl.concat([err_data, err_row])
     file_path.parent.mkdir(parents=True, exist_ok=True)
     err_data.write_csv(file_path)
