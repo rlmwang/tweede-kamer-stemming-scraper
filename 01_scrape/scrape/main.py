@@ -66,6 +66,7 @@ DETAILS_SCHEMA = {
     "kamerlid": str,
     "stem": str,
     "niet_deelgenomen": str,
+    "vergissing": bool,
 }
 
 
@@ -74,8 +75,11 @@ def run(
     to_date: date | None,
     output_dir: str,
     full_refresh: bool,
+    select: str | None,
 ):
     to_date = max(to_date or date.today(), from_date)
+    select = parse_select_argument(select)
+
     progress = read_progress()
 
     page = 0
@@ -92,7 +96,7 @@ def run(
 
         soup = BeautifulSoup(resp.content, "lxml")
         for data in parse_listings_page(
-            url=url, soup=soup, progress=progress, full_refresh=full_refresh
+            url=url, soup=soup, select=select, progress=progress, full_refresh=full_refresh
         ):
             if len(data["stemming"]) != 1:
                 raise ValueError(f"Multiple votings in one page for {url}")
@@ -109,6 +113,7 @@ def run(
 def parse_listings_page(
     url: str,
     soup: BeautifulSoup,
+    select: list[str] | None,
     progress: dict[str, list],
     full_refresh: bool,
 ) -> Iterator[dict[str, pl.DataFrame]]:
@@ -140,6 +145,11 @@ def parse_listings_page(
 
     for card in cards:
         print(card["stem_dt"], card["stem_id"], card["link"])
+
+        if select is not None and card["stem_id"] not in select:
+            print("Skipped because not in 'select' argument")
+            continue
+
         if not full_refresh and already_processed(progress, card["stem_dt"], card["stem_id"]):
             print("Skipped because already processed")
             continue
@@ -393,12 +403,12 @@ def parse_text_from_download(url: str) -> str:
     if "wordprocessingml" in file_type:
         # DOCX parser
         doc = Document(file_bytes)
-        
+
         # paragraphs
         for p in doc.paragraphs:
             if p.text.strip():
                 text_parts.append(p.text.strip())
-        
+
         # tables
         for table in doc.tables:
             for row in table.rows:
@@ -424,63 +434,66 @@ def parse_text_from_download(url: str) -> str:
     return motie_text
 
 
+EXPECTED_HEADERS = [
+    ["Fracties", "Zetels", "Voor/Tegen"],
+    ["Fracties", "Zetels", "Voor/Tegen", "Vergissing"],
+    ["Fracties", "Zetels", "Kamerlid", "Voor/Tegen", "Niet deelgenomen"],
+    ["Fracties", "Zetels", "Kamerlid", "Voor/Tegen", "Niet deelgenomen", "Vergissing"],
+]
+
+
 def parse_details_info(url: str, soup: BeautifulSoup) -> list[dict]:
-    rows = soup.select("#votes-details table.h-table-bordered tbody tr")[1:]  # skip header
+    rows = soup.select("#votes-details table.h-table-bordered tbody tr")[1:]  # skip header row
 
     headers = [th.get_text(strip=True) for th in soup.select("#votes-details table thead th")]
-    if not headers:  # fallback if no <thead>
-        headers = [th.get_text(strip=True) for th in soup.select("#votes-details table tbody tr")[0]]
+    if not headers:
+        headers = [
+            th.get_text(strip=True)
+            for th in soup.select("#votes-details table tbody tr")[0].find_all(["th", "td"])
+        ]
 
-    # detect format
-    if "Kamerlid" in headers:
-        # format with individual members
-        format_type = "members"
-    else:
-        # format with just faction totals
+    if headers not in EXPECTED_HEADERS:
+        raise ValueError(f"Unexpected table headers: {headers}")
+
+    # Determine format
+    if headers == EXPECTED_HEADERS[0]:
         format_type = "totals"
+    else:
+        format_type = "members"
 
     details_info = []
     current_fractie = None
     current_zetels = None
 
     for r in rows:
-        cells = r.find_all("td")
-        if format_type == "totals":
-            # totals format: 3 columns
-            if len(cells) < 3:
-                continue  # skip malformed row
-            fractie = cells[0].get_text(strip=True)
-            zetels = int(cells[1].get_text(strip=True))
-            stem = cells[2].get_text(strip=True)
-            details_info.append({
-                "fractie": fractie,
-                "zetels": zetels,
-                "kamerlid": None,
-                "stem": stem,
-                "niet_deelgenomen": None,
-            })
-        else:
-            # members format: 5 columns, faction & seat may be rowspaned
-            if len(cells) == 5:
-                # first row of a bloc with rowspan
-                current_fractie = cells[0].get_text(strip=True)
-                current_zetels = int(cells[1].get_text(strip=True))
-                kamerlid = cells[2].get_text(strip=True)
-                stem = cells[3].get_text(strip=True) or None
-                niet_deelgenomen = cells[4].get_text(strip=True) or None
-            else:
-                # subsequent rows
-                kamerlid = cells[0].get_text(strip=True)
-                stem = cells[1].get_text(strip=True) or None
-                niet_deelgenomen = cells[2].get_text(strip=True) or None
+        cells = r.find_all(["td", "th"])
 
-            details_info.append({
+        if len(cells) == len(headers):
+            # first row of a bloc with rowspan
+            current_fractie = cells[0].get_text(strip=True)
+            current_zetels = int(cells[1].get_text(strip=True))
+            row = {
+                h.lower().replace(" ", "_"): (c.get_text(strip=True) or None)
+                for h, c in zip(headers[2:], cells[2:])
+            }
+        else:
+            # subsequent rows
+            row = {
+                h.lower().replace(" ", "_"): (c.get_text(strip=True) or None)
+                for h, c in zip(headers[2:], cells)
+            }
+
+        details_info.append(
+            {
                 "fractie": current_fractie,
                 "zetels": current_zetels,
-                "kamerlid": kamerlid,
-                "stem": stem,
-                "niet_deelgenomen": niet_deelgenomen
-            })
+                "kamerlid": row.get("kamerlid"),
+                "stem": row.get("voor/tegen"),
+                "niet_deelgenomen": row.get("niet_deelgenomen"),
+                "vergissing": bool(row.get("vergissing")),
+            }
+        )
+
     return details_info
 
 
@@ -523,6 +536,10 @@ def parse_indieners_info(url: str, soup: BeautifulSoup) -> list[dict]:
 
 
 # UTILS
+
+
+def parse_select_argument(arg: str | None) -> list[str] | None:
+    return arg.split() if arg is not None else None
 
 
 def create_tables() -> dict[str, pl.DataFrame]:
