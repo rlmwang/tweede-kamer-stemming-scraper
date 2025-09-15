@@ -70,6 +70,7 @@ def run(
     from_date: date,
     to_date: date | None,
     output_dir: str,
+    full_refresh: bool,
 ):
     to_date = max(to_date or date.today(), from_date)
     progress = read_progress()
@@ -87,31 +88,63 @@ def run(
             break
 
         soup = BeautifulSoup(resp.content, "lxml")
-        for data in parse_listings_page(url=url, soup=soup):
+        for data in parse_listings_page(
+            url=url, soup=soup, progress=progress, full_refresh=full_refresh
+        ):
             if len(data["stemming"]) != 1:
                 raise ValueError(f"Multiple votings in one page for {url}")
 
             stem_id = data["stemming"]["stemming_id"].item()
             stem_dt = data["stemming"]["datum"].item()
-            stem_dt = parse_date(stem_dt, languages=["nl"])
-            stem_dt = stem_dt.strftime("%Y-%m-%d")
+            stem_dt = parse_dutch_date_str(stem_dt)
 
             write_tables(data, Path(output_dir) / stem_dt / stem_id)
 
-            progress.setdefault(stem_dt, []).append(stem_id)
-            write_progress(progress)
         page += 1
 
 
-def parse_listings_page(url: str, soup) -> Iterator[dict[str, pl.DataFrame]]:
-    links = [a["href"] for a in soup.select("h4.u-mt-0 > a")]
-    if len(links) == 0:
+def parse_listings_page(
+    url: str,
+    soup: BeautifulSoup,
+    progress: dict[str, list],
+    full_refresh: bool,
+) -> Iterator[dict[str, pl.DataFrame]]:
+    cards = []
+    for card in soup.select("div.m-card, div.u-mt-6.m-card"):
+        a_tag = card.select_one("h4.u-mt-0 > a")
+        if a_tag:
+            link = a_tag["href"]
+
+        time_tag = card.select_one("time.u-text-primary")
+        if time_tag:
+            stem_dt = time_tag.get_text(strip=True)
+            stem_dt = parse_dutch_date_str(stem_dt)
+
+        id_tag = card.select_one("p.u-text-dark-gray")
+        if id_tag:
+            stem_id = id_tag.get_text(strip=True)
+
+        cards.append(
+            {
+                "link": link,
+                "stem_dt": stem_dt,
+                "stem_id": stem_id,
+            }
+        )
+
+    if len(cards) == 0:
         raise ValueError(f"No links found for {url}")
 
-    result = None
-    for link in links:
-        print(link)
-        yield parse_stemming_page(url=DEBAT_URL.format(link=link.strip("/")))
+    for card in cards:
+        print(card["stem_dt"], card["stem_id"], card["link"])
+        if not full_refresh and already_processed(progress, card["stem_dt"], card["stem_id"]):
+            print("Skipped because already processed")
+            continue
+
+        yield parse_stemming_page(url=DEBAT_URL.format(link=card["link"].strip("/")))
+
+        progress.setdefault(card["stem_dt"], []).append(card["stem_id"])
+        write_progress(progress)
 
 
 def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
@@ -167,7 +200,7 @@ def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
     return data
 
 
-def parse_stemming_page_info(url: str, soup) -> dict:
+def parse_stemming_page_info(url: str, soup: BeautifulSoup) -> dict:
     # stemming id & did
     match = re.search(r"id=([^&]+)&(?:did|dossier)=([^&]+)", url)
     if not match:
@@ -274,7 +307,7 @@ def parse_motie_page(
     return data
 
 
-def parse_motie_info(url: str, soup) -> dict:
+def parse_motie_info(url: str, soup: BeautifulSoup) -> dict:
     # motie id & did
     match = re.search(r"id=([^&]+)&(?:did|dossier)=([^&]+)", url)
     if not match:
@@ -371,7 +404,7 @@ def parse_motie_info(url: str, soup) -> dict:
     }
 
 
-def parse_indieners_info(url: str, soup) -> list[dict]:
+def parse_indieners_info(url: str, soup: BeautifulSoup) -> list[dict]:
     indieners = []
     for li in soup.select("ul.m-list li.m-list__item--variant-member"):
         # indiener type
@@ -489,3 +522,13 @@ def rebuild_progress(data_path: str):
             res[key].add(subfolder.name)
         res[key] = list(res[key])
     write_progress(res)
+
+
+def already_processed(progress: dict[str, list], stem_dt: str, stem_id: str) -> bool:
+    return stem_dt in progress and stem_id in progress[stem_dt]
+
+
+def parse_dutch_date_str(date: str) -> str:
+    date = parse_date(date, languages=["nl"])
+    date = date.strftime("%Y-%m-%d")
+    return date
