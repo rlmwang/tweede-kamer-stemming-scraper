@@ -570,6 +570,7 @@ def write_error(stem_id: str, url: str, err: Exception):
     )
     err_data = read_error()
     err_data = pl.concat([err_data, err_row])
+    err_data = err_data.unique()
 
     file_path = Path(".run") / "errors.csv"
     file_path.parent.mkdir(parents=True, exist_ok=True)
