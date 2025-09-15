@@ -1,8 +1,9 @@
-import click
-from pathlib import Path
-from scrape import main as scraper
 from datetime import datetime
+from pathlib import Path
 
+import click
+
+from scrape import main as scraper
 
 DEFAULT_OUTPUT_DIR = Path("../data")
 

@@ -1,21 +1,22 @@
 # A new beginning, let the behaviour be known
+import json
 import os
 import re
 import ssl
-import json
 from collections.abc import Iterator
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
-from datetime import date, datetime
 
 import click
+import magic
 import polars as pl
 import requests
 import wget
-from dateparser import parse as parse_date
 from bs4 import BeautifulSoup
+from dateparser import parse as parse_date
 from docx import Document
-
+from PyPDF2 import PdfReader
 
 STEMMINGSUITSLAGEN_URL = (
     "https://www.tweedekamer.nl/kamerstukken/stemmingsuitslagen"
@@ -356,38 +357,15 @@ def parse_motie_info(url: str, soup: BeautifulSoup) -> dict:
 
     # motion text
     content = soup.select_one("div.m-modal__content")
-
     if content:
-        is_fallback = False
-
         # normalize whitespace
+        is_fallback = False
         motie_text = " ".join(t.strip() for t in content.stripped_strings)
         motie_text = " ".join(motie_text.split())
     else:
-        is_fallback = True
-
         # fallback to parsing download
-        response = requests.get(motie_download)
-        response.raise_for_status()
-        doc = Document(BytesIO(response.content))
-
-        text_parts = []
-
-        # paragraphs
-        for p in doc.paragraphs:
-            if p.text.strip():
-                text_parts.append(p.text.strip())
-
-        # tables
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    if cell.text.strip():
-                        text_parts.append(cell.text.strip())
-
-        # combine and normalize whitespace
-        motie_text = " ".join(text_parts)
-        motie_text = " ".join(motie_text.split())
+        is_fallback = True
+        motie_text = parse_text_from_download(url=motie_download)
 
     return {
         "motie_id": motie_id,
@@ -400,6 +378,50 @@ def parse_motie_info(url: str, soup: BeautifulSoup) -> dict:
         "is_fallback": is_fallback,
         "download": motie_download,
     }
+
+
+def parse_text_from_download(url: str) -> str:
+    # download the file
+    response = requests.get(url)
+    response.raise_for_status()
+    file_bytes = BytesIO(response.content)
+
+    # detect file type
+    file_type = magic.from_buffer(file_bytes.getvalue(), mime=True)
+
+    text_parts = []
+    if "wordprocessingml" in file_type:
+        # DOCX parser
+        doc = Document(file_bytes)
+        
+        # paragraphs
+        for p in doc.paragraphs:
+            if p.text.strip():
+                text_parts.append(p.text.strip())
+        
+        # tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        text_parts.append(cell.text.strip())
+
+    elif file_type == "application/pdf":
+        # PDF parser
+        reader = PdfReader(file_bytes)
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                text_parts.append(text.strip())
+
+    else:
+        raise ValueError(f"Unsupported file type: {file_type}")
+
+    # combine and normalize whitespace
+    motie_text = " ".join(text_parts)
+    motie_text = " ".join(motie_text.split())
+
+    return motie_text
 
 
 def parse_details_info(url: str, soup: BeautifulSoup) -> list[dict]:
@@ -530,6 +552,14 @@ def merge_tables(
     return output
 
 
+def read_error():
+    file_path = Path(".run") / "errors.csv"
+    if file_path.exists():
+        return pl.read_csv(file_path)
+    else:
+        return pl.DataFrame(schema={"stemming_id": str, "url": str, "error": str})
+
+
 def write_error(stem_id: str, url: str, err: Exception):
     err_row = pl.DataFrame(
         {
@@ -538,12 +568,10 @@ def write_error(stem_id: str, url: str, err: Exception):
             "error": str(err),
         }
     )
-    file_path = Path(".run") / "errors.csv"
-    if file_path.exists():
-        err_data = pl.read_csv(file_path)
-    else:
-        err_data = pl.DataFrame(schema={"stemming_id": str, "url": str, "error": str})
+    err_data = read_error()
     err_data = pl.concat([err_data, err_row])
+
+    file_path = Path(".run") / "errors.csv"
     file_path.parent.mkdir(parents=True, exist_ok=True)
     err_data.write_csv(file_path)
 
@@ -555,7 +583,19 @@ def read_progress() -> dict[str, list]:
             progress = json.load(f)
     else:
         progress = {}
+    progress = remove_failed_from_progress(progress)
     return progress
+
+
+def remove_failed_from_progress(progress: dict[str, list]) -> dict[str, list]:
+    err_data = read_error()
+    err_ids = err_data["stemming_id"].to_list()
+
+    result = {}
+    for date, ids in progress.items():
+        result[date] = [i for i in ids if i not in err_ids]
+
+    return result
 
 
 def write_progress(progress: dict[str, list]):
