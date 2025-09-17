@@ -29,7 +29,7 @@ cd tweede-kamer-scraper/01_scrape
 uv install
 ```
 
-Usage
+## Usage
 
 To see CLI options and help:
 
