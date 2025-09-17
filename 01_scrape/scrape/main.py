@@ -85,6 +85,8 @@ def run(
     page = 0
     result = None
     while True:
+        print(f"Page {page:02d}")
+
         url = STEMMINGSUITSLAGEN_URL.format(from_date=from_date, to_date=to_date, page=page)
         resp = requests.get(url)
         if not resp.ok:
@@ -445,9 +447,7 @@ def parse_text_from_download(url: str) -> str:
 
 EXPECTED_HEADERS = [
     ["Fracties", "Zetels", "Voor/Tegen"],
-    ["Fracties", "Zetels", "Voor/Tegen", "Vergissing"],
-    ["Fracties", "Zetels", "Kamerlid", "Voor/Tegen", "Niet deelgenomen"],
-    ["Fracties", "Zetels", "Kamerlid", "Voor/Tegen", "Niet deelgenomen", "Vergissing"],
+    ["Fracties", "Zetels", "Kamerlid", "Voor/Tegen"],
 ]
 
 
@@ -461,7 +461,7 @@ def parse_details_info(url: str, soup: BeautifulSoup) -> list[dict]:
             for th in soup.select("#votes-details table tbody tr")[0].find_all(["th", "td"])
         ]
 
-    if headers not in EXPECTED_HEADERS:
+    if headers[:3] != EXPECTED_HEADERS[0] and headers[:4] != EXPECTED_HEADERS[1]:
         raise ValueError(f"Unexpected table headers: {headers}")
 
     current_fractie = None
