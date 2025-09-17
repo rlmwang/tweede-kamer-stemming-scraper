@@ -152,14 +152,19 @@ def parse_listings_page(
             print("Skipped because already processed")
             continue
 
-        yield parse_stemming_page(url=DEBAT_URL.format(link=card["link"].strip("/")))
+        result, ok = parse_stemming_page(url=DEBAT_URL.format(link=card["link"].strip("/")))
+        yield result
+
+        if ok:
+            rem_error(stem_id=card["stem_id"])
 
         progress.setdefault(card["stem_dt"], []).append(card["stem_id"])
         write_progress(progress)
 
 
-def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
-    data = create_tables()
+def parse_stemming_page(url: str) -> tuple[dict[str, pl.DataFrame], bool]:
+    result = create_tables()
+    res_ok = True
 
     resp = requests.get(url)
     if not resp.ok:
@@ -169,13 +174,13 @@ def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
     # parse voting
 
     stemming_info = parse_stemming_page_info(url=url, soup=soup)
-    data["stemming"] = pl.concat([data["stemming"], pl.DataFrame(stemming_info)])
+    result["stemming"] = pl.concat([result["stemming"], pl.DataFrame(stemming_info)])
 
     # parse individual motions
 
     cards = soup.select("div.m-card")
     if len(cards) == 0:
-        return data
+        return result, res_ok
 
     for k, card in enumerate(cards):
         # Find the main motion link
@@ -203,16 +208,22 @@ def parse_stemming_page(url: str) -> dict[str, pl.DataFrame]:
             )
         except Exception as err:
             print(f"Failed {url}")
-            write_error(
+            add_error(
                 stem_id=stemming_info["stemming_id"],
                 url=MOTIE_URL.format(link=link.strip("/")),
                 err=err,
             )
+            res_ok = False
             continue
 
-        data = merge_tables(data, motie_data)
+        result = merge_tables(result, motie_data)
 
-    return data
+        rem_error(
+            stem_id=stemming_info["stemming_id"],
+            url=MOTIE_URL.format(link=link.strip("/")),
+        )
+
+    return result, res_ok
 
 
 def parse_stemming_page_info(url: str, soup: BeautifulSoup) -> dict:
@@ -502,7 +513,7 @@ def parse_indieners_info(url: str, soup: BeautifulSoup) -> list[dict]:
         # indiener name
         label_span = li.select_one("span.m-list__label")
         if not label_span:
-            raise ValueError(f"Name of (mede)indiener is missing for {url}")
+            raise ValueError(f"2: Name of (mede)indiener is missing for {url}")
 
         name_link = label_span.select_one("a.h-link-inverse")
         if name_link:
@@ -512,7 +523,7 @@ def parse_indieners_info(url: str, soup: BeautifulSoup) -> list[dict]:
             # Take the text after the type span
             texts = [t.strip() for t in label_span.stripped_strings]
             if len(texts) <= 1:
-                raise ValueError(f"Name of (mede)indiener is missing for {url}")
+                continue
             full_name = texts[1]
 
             # Split off descriptor at first comma
@@ -523,6 +534,9 @@ def parse_indieners_info(url: str, soup: BeautifulSoup) -> list[dict]:
                 name_text = full_name
 
         indieners.append({"type": type_text, "name": name_text})
+
+    if len(indieners) == 0:
+        raise ValueError(f"(Mede)indieners are missing for {url}")
 
     return indieners
 
@@ -561,7 +575,7 @@ def merge_tables(
     return output
 
 
-def read_error():
+def read_error() -> pl.DataFrame:
     file_path = Path(".run") / "errors.csv"
     if file_path.exists():
         return pl.read_csv(file_path)
@@ -569,7 +583,14 @@ def read_error():
         return pl.DataFrame(schema={"stemming_id": str, "url": str, "error": str})
 
 
-def write_error(stem_id: str, url: str, err: Exception):
+def write_error(err_data: pl.DataFrame):
+    file_path = Path(".run") / "errors.csv"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    err_data = err_data.unique().sort("stemming_id", "url")
+    err_data.write_csv(file_path)
+
+
+def add_error(stem_id: str, url: str, err: Exception):
     err_row = pl.DataFrame(
         {
             "stemming_id": stem_id,
@@ -579,11 +600,20 @@ def write_error(stem_id: str, url: str, err: Exception):
     )
     err_data = read_error()
     err_data = pl.concat([err_data, err_row])
-    err_data = err_data.unique()
+    write_error(err_data)
 
-    file_path = Path(".run") / "errors.csv"
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    err_data.write_csv(file_path)
+
+def rem_error(stem_id: str, url: str | None = None):
+    err_data = read_error()
+    if url is None:
+        err_data = err_data.filter(
+            pl.col("stemming_id") != stem_id,
+        )
+    else:
+        err_data = err_data.filter(
+            ~((pl.col("stemming_id") == stem_id) & (pl.col("url") == url)),
+        )
+    write_error(err_data)
 
 
 def read_progress() -> dict[str, list]:
