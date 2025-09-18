@@ -149,11 +149,10 @@ def parse_listings_page(
         if select is not None and card["stem_id"] not in select:
             continue
 
-        print(card["stem_dt"], card["stem_id"], card["link"])
         if not full_refresh and already_processed(progress, card["stem_dt"], card["stem_id"]):
-            print("Skipped because already processed")
             continue
 
+        print(card["stem_dt"], card["stem_id"], card["link"])
         result, ok = parse_stemming_page(url=DEBAT_URL.format(link=card["link"].strip("/")))
         yield result
 
@@ -210,6 +209,9 @@ def parse_stemming_page(url: str) -> tuple[dict[str, pl.DataFrame], bool]:
             )
         except Exception as err:
             print(f"Failed {url}")
+            rem_error(
+                stem_id=stemming_info["stemming_id"],
+            )
             add_error(
                 stem_id=stemming_info["stemming_id"],
                 url=MOTIE_URL.format(link=link.strip("/")),
@@ -366,9 +368,19 @@ def parse_motie_info(url: str, soup: BeautifulSoup) -> dict:
     motie_type, motie_title = all_titles[0]["type"], all_titles[0]["titel"]
 
     # check for early exits
-    if motie_type.lower() == "wetsvoorstel":
+    if motie_type.lower() in ["wetsvoorstel", "voorstel van wet", "eindtekst"]:
         # TODO: implement wetsvoorstellen
-        raise NotImplementedError("Wetsvoorstellen not supported yet")
+        return {
+            "motie_id": motie_id,
+            "motie_did": motie_did,
+            "document_nr": motie_document_nr,
+            "datum": motie_date,
+            "titel": motie_title,
+            "type": motie_type,
+            "text": None,
+            "is_fallback": False,
+            "download": None,
+        }
 
     # motie pdf url
     download_tag = soup.select_one('a[aria-label^="Download kamerstuk"]')
