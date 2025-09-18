@@ -318,8 +318,13 @@ def parse_motie_page(
         motie_info["uitslag"] = h3.get_text(strip=True)
 
         # motie uitslag counts
+
+        # Voor
+        vote_result = soup.select_one("div.m-vote-result__bar")
+        motie_info["voor"] = int(vote_result.get("data-vote-result", "0") or "0")
+
+        # Vereist & Totaal: inside hidden spans
         labels = soup.select("div.m-vote-result__label")
-        motie_info["voor"] = int(labels[0].find("span").get_text(strip=True).lstrip(": "))
         motie_info["vereist"] = int(labels[1].find("span").get_text(strip=True).split(": ")[1])
         motie_info["totaal"] = int(labels[2].find("span").get_text(strip=True).split(": ")[1])
 
