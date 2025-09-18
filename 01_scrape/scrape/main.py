@@ -69,6 +69,19 @@ DETAILS_SCHEMA = {
     "vergissing": bool,
 }
 
+WETSVOORSTELLEN = [
+    "wetsvoorstel",
+    "voorstel van wet",
+    "voorstel van wet (initiatiefvoorstel)",
+    "eindtekst",
+]
+
+GEEN_INDIENERS = [
+    *WETSVOORSTELLEN,
+    "advies afdeling advisering raad van state",
+    "memorie van toelichting",
+]
+
 
 def run(
     from_date: date,
@@ -288,10 +301,13 @@ def parse_motie_page(
         "besluit": besluit,
     }
 
-    indieners_info = parse_indieners_info(url=url, soup=soup)
-    for row in indieners_info:
-        row["stemming_id"] = motie_info["stemming_id"]
-        row["motie_id"] = motie_info["motie_id"]
+    if motie_info["type"].lower().strip() not in GEEN_INDIENERS:
+        indieners_info = parse_indieners_info(url=url, soup=soup)
+        for row in indieners_info:
+            row["stemming_id"] = motie_info["stemming_id"]
+            row["motie_id"] = motie_info["motie_id"]
+    else:
+        indieners_info = []
 
     h2 = soup.find("h2", string=lambda t: t and "Stemmingsuitslagen" in t)
     if h2 is not None:
@@ -368,7 +384,7 @@ def parse_motie_info(url: str, soup: BeautifulSoup) -> dict:
     motie_type, motie_title = all_titles[0]["type"], all_titles[0]["titel"]
 
     # check for early exits
-    if motie_type.lower() in ["wetsvoorstel", "voorstel van wet", "eindtekst"]:
+    if motie_type.lower().strip() in WETSVOORSTELLEN:
         # TODO: implement wetsvoorstellen
         return {
             "motie_id": motie_id,
