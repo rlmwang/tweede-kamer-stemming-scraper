@@ -69,6 +69,29 @@ def drop_db():
     )
 
 
+@cli.command("truncate-db")
+def truncate_db():
+    """Truncate all tables in the Postgres DB (safer than DROP)."""
+    click.confirm("This will TRUNCATE all tables in Postgres. Continue?", abort=True)
+
+    sql = """DO $$
+    DECLARE
+        r RECORD;
+    BEGIN
+        FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+            EXECUTE 'TRUNCATE TABLE public.' || quote_ident(r.tablename) || ' CASCADE;';
+        END LOOP;
+    END $$;"""
+
+    sp.run(
+        [
+            "docker", "exec", "-i", POSTGRES_CONTAINER_NAME,
+            "psql", "-U", POSTGRES_USER, "-d", POSTGRES_DB, "-c", sql
+        ],
+        check=True,
+    )
+
+
 @cli.command("import-csv")
 @click.argument("data_dir", default="../data")
 def import_csv(data_dir):
